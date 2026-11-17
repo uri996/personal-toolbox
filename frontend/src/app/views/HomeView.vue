@@ -14,8 +14,15 @@ const toolCategories = [
     tools: tools.filter((tool) => tool.category === '文本处理'),
   },
   {
-    id: 'data-finance',
+    id: 'document-conversion',
     code: '02',
+    englishName: 'DOCUMENT CONVERSION',
+    name: '文档转换',
+    tools: tools.filter((tool) => tool.category === '文档转换'),
+  },
+  {
+    id: 'data-finance',
+    code: '03',
     englishName: 'FINANCE TOOLS',
     name: '金融工具',
     tools: tools.filter((tool) => tool.category === '金融工具'),
@@ -104,7 +111,7 @@ function moduleNumber(toolId: string): string {
 
     <section class="project-record" aria-labelledby="project-record-heading">
       <div>
-        <span class="section-code">03 / PROJECT RECORD</span>
+        <span class="section-code">04 / PROJECT RECORD</span>
         <h2 id="project-record-heading">项目记录</h2>
         <p>了解 Personal Toolbox 已完成的主要工具与产品阶段。</p>
       </div>

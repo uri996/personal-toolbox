@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { installRecentToolTracking } from '../recentTool'
-import { exchangeRateTool, textCleanerTool, textCompareTool } from '../tools'
+import { exchangeRateTool, pdfToWordTool, textCleanerTool, textCompareTool } from '../tools'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -45,6 +45,11 @@ const router = createRouter({
       path: '/tools/text-cleaner/normalizer',
       name: 'tool-text-cleaner-normalizer',
       component: () => import('@/tools/text-normalizer/TextNormalizerView.vue'),
+    },
+    {
+      path: pdfToWordTool.path,
+      name: `tool-${pdfToWordTool.id}`,
+      component: () => import('@/tools/pdf-to-word/PdfToWordView.vue'),
     },
     {
       path: '/:pathMatch(.*)*',

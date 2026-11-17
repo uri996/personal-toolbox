@@ -68,12 +68,23 @@ export const exchangeRateTool: ToolDefinition = {
   path: '/tools/exchange-rate',
 }
 
-export const tools: ToolDefinition[] = [textCompareTool, textCleanerTool, exchangeRateTool]
+export const pdfToWordTool: ToolDefinition = {
+  id: 'pdf-to-word',
+  name: 'PDF 转 Word',
+  englishName: 'PDF TO WORD',
+  description: '将普通 PDF 文件转换为可编辑的 Word 文档。',
+  category: '文档转换',
+  tags: ['FILE', 'PDF → DOCX'],
+  path: '/tools/pdf-to-word',
+}
+
+export const tools: ToolDefinition[] = [textCompareTool, textCleanerTool, pdfToWordTool, exchangeRateTool]
 export const recentTools: ToolDefinition[] = [
   textCompareTool,
   pdfTextCleanerTool,
   markdownTextCleanerTool,
   textNormalizerTool,
+  pdfToWordTool,
   exchangeRateTool,
 ]
 
