@@ -1,6 +1,7 @@
 import io
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from .errors import (
@@ -16,6 +17,19 @@ LOGGER = logging.getLogger(__name__)
 # Scanned image PDFs contain no extractable text (0 characters), so a small
 # positive threshold safely distinguishes them from short text documents.
 MIN_TEXT_THRESHOLD = 5
+
+
+@dataclass(frozen=True)
+class ConversionOutcome:
+    """Converted document plus the result of the font repair step.
+
+    ``fonts_normalized`` is False when the DOCX was produced successfully but
+    the optional font repair failed, so the file is still valid and
+    downloadable while needing a user-visible warning.
+    """
+
+    docx: bytes
+    fonts_normalized: bool
 
 
 def inspect_pdf(pdf_bytes: bytes) -> None:
@@ -57,22 +71,25 @@ def convert_pdf_to_docx(
     pdf_bytes: bytes,
     *,
     converter_factory: Callable[[bytes], Any] | None = None,
-) -> bytes:
-    """Convert PDF bytes to DOCX bytes using pdf2docx.
+) -> ConversionOutcome:
+    """Convert PDF bytes to a DOCX document using pdf2docx.
 
     Args:
         pdf_bytes: the raw PDF content.
         converter_factory: optional factory for injecting a Converter in tests.
 
     Returns:
-        The generated DOCX file bytes.
+        The generated DOCX bytes together with the font repair status.
 
     Raises:
         EncryptedPdfError: the PDF requires a password.
-        ConversionFailedError: the conversion engine failed.
+        ConversionFailedError: the conversion engine failed, or it produced no
+            valid DOCX that could be returned safely.
     """
     from pdf2docx import Converter
     from pdf2docx.converter import ConversionException
+
+    from .font_normalizer import normalize_docx_with_status
 
     factory = converter_factory or (lambda data: Converter(stream=data))
     converter = factory(pdf_bytes)
@@ -95,4 +112,5 @@ def convert_pdf_to_docx(
     result = output.getvalue()
     if not result:
         raise ConversionFailedError
-    return result
+    docx_bytes, fonts_normalized = normalize_docx_with_status(result)
+    return ConversionOutcome(docx=docx_bytes, fonts_normalized=fonts_normalized)

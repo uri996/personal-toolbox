@@ -15,6 +15,7 @@ const state = ref<ConversionState>('idle')
 const errorMessage = ref('')
 const downloadUrl = ref<string | null>(null)
 const downloadFilename = ref('')
+const fontsNormalized = ref(true)
 const isDragging = ref(false)
 let activeRequest: AbortController | null = null
 
@@ -105,6 +106,7 @@ function resetResult() {
     downloadUrl.value = null
   }
   downloadFilename.value = ''
+  fontsNormalized.value = true
 }
 
 async function startConversion() {
@@ -125,6 +127,7 @@ async function startConversion() {
     }
     downloadUrl.value = URL.createObjectURL(result.blob)
     downloadFilename.value = result.filename
+    fontsNormalized.value = result.fontsNormalized
     state.value = 'success'
   } catch (error) {
     if (request.signal.aborted) {
@@ -207,10 +210,18 @@ onBeforeUnmount(() => {
         <p>正在处理 PDF，请稍候…</p>
       </section>
 
-      <section v-else-if="state === 'success' && downloadUrl" class="status-panel success">
+      <section
+        v-else-if="state === 'success' && downloadUrl"
+        class="status-panel success"
+        :class="{ 'is-degraded': !fontsNormalized }"
+      >
         <div class="status-body">
-          <h2>转换完成</h2>
-          <p>Word 文档已生成，可直接下载。</p>
+          <h2>{{ fontsNormalized ? '转换完成' : '转换完成，字体优化未成功' }}</h2>
+          <p v-if="fontsNormalized">Word 文档已生成，可直接下载。</p>
+          <p v-else class="status-warning">
+            Word 已生成，但自动字体优化未成功，部分文字可能显示异常。你仍可下载文件，并在 Word
+            或 WPS 中手动调整字体。
+          </p>
         </div>
         <a :href="downloadUrl" :download="downloadFilename" class="download-button">
           下载 Word <span aria-hidden="true">↓</span>
@@ -427,6 +438,19 @@ button:disabled {
 
 .status-panel.success h2 {
   color: var(--color-success);
+}
+
+.status-panel.success.is-degraded {
+  border-color: color-mix(in srgb, var(--color-danger) 25%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-danger) 4%, var(--color-surface));
+}
+
+.status-panel.success.is-degraded h2 {
+  color: var(--color-danger);
+}
+
+.status-warning {
+  color: var(--color-text-secondary);
 }
 
 .status-panel.error h2 {

@@ -4,7 +4,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
-from .errors import ERROR_MESSAGES, PdfToWordError
+from .errors import ERROR_MESSAGES, ConversionFailedError, PdfToWordError
 from .service import MAX_FILE_SIZE, PdfToWordService
 
 LOGGER = logging.getLogger(__name__)
@@ -14,6 +14,10 @@ router = APIRouter()
 DOCX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
+
+# Signals whether the optional font repair step succeeded. Clients read this to
+# warn the user without blocking the download of an otherwise valid document.
+FONT_NORMALIZATION_HEADER = "X-Font-Normalization"
 
 
 @router.post("/api/pdf-to-word/convert")
@@ -27,14 +31,17 @@ async def convert_pdf_to_word(
     raw_bytes = await file.read()
 
     try:
-        docx_bytes = service.convert(raw_bytes, filename)
+        outcome = service.convert(raw_bytes, filename)
     except PdfToWordError as error:
         message = ERROR_MESSAGES.get(type(error), "转换失败，请稍后重试。")
-        raise HTTPException(status_code=400, detail=message) from error
+        # Input problems are client errors; engine/internal failures are 5xx.
+        status_code = 500 if isinstance(error, ConversionFailedError) else 400
+        raise HTTPException(status_code=status_code, detail=message) from error
     except Exception:
         LOGGER.exception("Unhandled pdf-to-word conversion error")
         raise HTTPException(status_code=500, detail="转换失败，请稍后重试。") from None
 
+    docx_bytes = outcome.docx
     safe_name = _build_docx_filename(filename)
     content_disposition = _build_content_disposition(safe_name)
 
@@ -44,6 +51,9 @@ async def convert_pdf_to_word(
         headers={
             "Content-Disposition": content_disposition,
             "Content-Length": str(len(docx_bytes)),
+            FONT_NORMALIZATION_HEADER: (
+                "applied" if outcome.fonts_normalized else "fallback"
+            ),
         },
     )
 

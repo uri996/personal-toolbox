@@ -143,7 +143,11 @@ describe('PdfToWordView', () => {
 
   it('shows the download link after successful conversion', async () => {
     const blob = new Blob(['docx-content'], { type: 'application/msword' })
-    vi.mocked(convertPdfToWord).mockResolvedValue({ blob, filename: 'report.docx' })
+    vi.mocked(convertPdfToWord).mockResolvedValue({
+      blob,
+      filename: 'report.docx',
+      fontsNormalized: true,
+    })
 
     const wrapper = mount(PdfToWordView)
     await selectFile(wrapper, createPdfFile('report.pdf'))
@@ -152,8 +156,36 @@ describe('PdfToWordView', () => {
 
     expect(wrapper.text()).toContain('转换完成')
     expect(wrapper.text()).toContain('下载 Word')
+    expect(wrapper.text()).not.toContain('字体优化未成功')
     const link = wrapper.find('a.download-button')
     expect(link.attributes('download')).toBe('report.docx')
+  })
+
+  it('warns and still offers the download when font optimization failed', async () => {
+    const blob = new Blob(['docx'])
+    vi.mocked(convertPdfToWord).mockResolvedValue({
+      blob,
+      filename: 'report.docx',
+      fontsNormalized: false,
+    })
+
+    const wrapper = mount(PdfToWordView)
+    await selectFile(wrapper, createPdfFile('report.pdf'))
+    await wrapper.find('button.convert-button').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('字体优化未成功')
+    expect(wrapper.text()).toContain(
+      'Word 已生成，但自动字体优化未成功，部分文字可能显示异常。',
+    )
+    expect(wrapper.text()).toContain('手动调整字体')
+
+    const link = wrapper.find('a.download-button')
+    expect(link.exists()).toBe(true)
+    expect(link.attributes('download')).toBe('report.docx')
+
+    // Must not look like a plain success, and must not auto-download.
+    expect(wrapper.find('.status-panel.success').classes()).toContain('is-degraded')
   })
 
   it('shows an error message when conversion fails', async () => {

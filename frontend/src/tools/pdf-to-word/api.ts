@@ -14,6 +14,11 @@ export function getApiBaseUrl(configuredUrl = import.meta.env.VITE_API_BASE_URL)
 export interface ConvertResult {
   blob: Blob
   filename: string
+  /**
+   * False when the server produced a valid DOCX but its optional font repair
+   * step failed. The file is still downloadable, but the user must be warned.
+   */
+  fontsNormalized: boolean
 }
 
 export async function convertPdfToWord(
@@ -49,7 +54,9 @@ export async function convertPdfToWord(
 
   const blob = await response.blob()
   const filename = parseFilename(response.headers.get('Content-Disposition'), file.name)
-  return { blob, filename }
+  const fontsNormalized =
+    response.headers.get('X-Font-Normalization')?.toLowerCase() !== 'fallback'
+  return { blob, filename, fontsNormalized }
 }
 
 async function parseErrorMessage(response: Response): Promise<string> {

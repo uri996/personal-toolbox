@@ -1,6 +1,6 @@
 import logging
 
-from .converter import convert_pdf_to_docx, inspect_pdf
+from .converter import ConversionOutcome, convert_pdf_to_docx, inspect_pdf
 from .errors import (
     EmptyFileError,
     FileTooLargeError,
@@ -21,7 +21,7 @@ class PdfToWordService:
     def __init__(self, *, max_file_size: int = MAX_FILE_SIZE) -> None:
         self._max_file_size = max_file_size
 
-    def convert(self, file_bytes: bytes, filename: str) -> bytes:
+    def convert(self, file_bytes: bytes, filename: str) -> ConversionOutcome:
         self._validate(file_bytes, filename)
         inspect_pdf(file_bytes)
         return convert_pdf_to_docx(file_bytes)

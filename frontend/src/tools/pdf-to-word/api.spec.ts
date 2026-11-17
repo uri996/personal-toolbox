@@ -17,6 +17,7 @@ interface MockResponseOptions {
   blobBody?: Blob
   contentType?: string
   contentDisposition?: string
+  fontNormalization?: string
 }
 
 function mockResponse(options: MockResponseOptions): Response {
@@ -26,6 +27,9 @@ function mockResponse(options: MockResponseOptions): Response {
   }
   if (options.contentDisposition) {
     headers.set('Content-Disposition', options.contentDisposition)
+  }
+  if (options.fontNormalization) {
+    headers.set('X-Font-Normalization', options.fontNormalization)
   }
   return {
     ok: options.status >= 200 && options.status < 300,
@@ -54,6 +58,24 @@ describe('convertPdfToWord', () => {
 
     expect(result.blob).toBeInstanceOf(Blob)
     expect(result.filename).toBe('report.docx')
+    expect(result.fontsNormalized).toBe(true)
+  })
+
+  it('marks the result as degraded when the server reports a font fallback', async () => {
+    const fetcher = (async () =>
+      mockResponse({
+        status: 200,
+        contentDisposition: 'attachment; filename="degraded.docx"',
+        fontNormalization: 'fallback',
+        blobBody: new Blob(['docx']),
+      })) as typeof fetch
+
+    const result = await convertPdfToWord(createPdfFile('report.pdf'), { fetcher })
+
+    // The file is still delivered, but the caller must be told it needs review.
+    expect(result.blob).toBeInstanceOf(Blob)
+    expect(result.filename).toBe('degraded.docx')
+    expect(result.fontsNormalized).toBe(false)
   })
 
   it('falls back to the original pdf name when content-disposition is missing', async () => {
