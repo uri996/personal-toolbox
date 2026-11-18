@@ -329,7 +329,10 @@ def _is_valid_docx(docx_bytes: bytes) -> bool:
     """Return True when the bytes form a readable DOCX package."""
     try:
         with zipfile.ZipFile(io.BytesIO(docx_bytes)) as archive:
-            return "word/document.xml" in archive.namelist()
+            if archive.testzip() is not None:
+                return False
+        document = Document(io.BytesIO(docx_bytes))
+        return document.element.body is not None
     except Exception:
         return False
 
@@ -353,7 +356,19 @@ def normalize_docx_with_status(docx_bytes: bytes) -> tuple[bytes, bool]:
     try:
         normalized = normalize_docx(docx_bytes)
         if not _is_valid_docx(normalized):
-            raise ValueError("normalized DOCX is missing document.xml")
+            raise ValueError("normalized DOCX is not readable")
+        original = Document(io.BytesIO(docx_bytes))
+        repaired = Document(io.BytesIO(normalized))
+        original_text = [
+            (node.tag, node.text) for node in original.element.body.iter()
+            if node.tag in {qn("w:t"), qn("w:tab"), qn("w:br")}
+        ]
+        repaired_text = [
+            (node.tag, node.text) for node in repaired.element.body.iter()
+            if node.tag in {qn("w:t"), qn("w:tab"), qn("w:br")}
+        ]
+        if original_text != repaired_text:
+            raise ValueError("font normalization changed document content")
         return normalized, True
     except Exception as error:
         LOGGER.exception("DOCX font normalization failed; falling back to original output")

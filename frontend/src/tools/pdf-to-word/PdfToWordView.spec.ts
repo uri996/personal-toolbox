@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
 import PdfToWordView from './PdfToWordView.vue'
 
@@ -34,6 +34,117 @@ async function selectFile(wrapper: ReturnType<typeof mount>, file: File) {
 }
 
 describe('PdfToWordView', () => {
+  it.each(['remove', 'select', 'drop', 'invalid', 'cancel'])(
+    'invalidates the pending request after %s',
+    async (action) => {
+      let resolve!: (value: Awaited<ReturnType<typeof convertPdfToWord>>) => void
+      vi.mocked(convertPdfToWord).mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            resolve = done
+          }),
+      )
+      const wrapper = mount(PdfToWordView)
+      await selectFile(wrapper, createPdfFile('old.pdf'))
+      await wrapper.find('button.convert-button').trigger('click')
+      const signal = vi.mocked(convertPdfToWord).mock.calls[0]?.[1]?.signal
+
+      if (action === 'remove') {
+        await wrapper.find('button.secondary-button').trigger('click')
+      } else if (action === 'drop') {
+        await wrapper.find('.upload-zone').trigger('drop', {
+          dataTransfer: { files: [createPdfFile('new.pdf')] },
+        })
+      } else if (action === 'cancel') {
+        const input = wrapper.find('input[type="file"]').element as HTMLInputElement
+        Object.defineProperty(input, 'files', { value: [], configurable: true })
+        input.dispatchEvent(new Event('change'))
+      } else {
+        const file =
+          action === 'invalid'
+            ? new File(['invalid'], 'bad.txt', { type: 'text/plain' })
+            : createPdfFile('new.pdf')
+        await selectFile(wrapper, file)
+      }
+
+      expect(signal?.aborted).toBe(true)
+      resolve({
+        blob: new Blob(['old']),
+        filename: 'old.docx',
+        fontsNormalized: true,
+        ocrStatus: 'disabled',
+      })
+      await flushPromises()
+      expect(wrapper.find('a.download-button').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('old.pdf')
+      expect(wrapper.find('button.retry-button').exists()).toBe(false)
+      expect(wrapper.find('button.convert-button').attributes('disabled') !== undefined).toBe(
+        ['remove', 'invalid', 'cancel'].includes(action),
+      )
+      wrapper.unmount()
+    },
+  )
+
+  it('keeps the new download when an older request resolves later', async () => {
+    let resolveOld!: (value: Awaited<ReturnType<typeof convertPdfToWord>>) => void
+    vi.mocked(convertPdfToWord)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOld = resolve
+          }),
+      )
+      .mockResolvedValueOnce({
+        blob: new Blob(['new']),
+        filename: 'new.docx',
+        fontsNormalized: true,
+        ocrStatus: 'applied',
+      })
+    const wrapper = mount(PdfToWordView)
+    await selectFile(wrapper, createPdfFile('old.pdf'))
+    await wrapper.find('button.convert-button').trigger('click')
+    await selectFile(wrapper, createPdfFile('new.pdf'))
+    await wrapper.find('button.convert-button').trigger('click')
+    await flushPromises()
+    resolveOld({
+      blob: new Blob(['old']),
+      filename: 'old.docx',
+      fontsNormalized: true,
+      ocrStatus: 'disabled',
+    })
+    await flushPromises()
+    expect(wrapper.find('a.download-button').attributes('download')).toBe('new.docx')
+    expect(wrapper.text()).toContain('new.pdf')
+    wrapper.unmount()
+  })
+
+  it('aborts on unmount and ignores a late response', async () => {
+    let resolve!: (value: Awaited<ReturnType<typeof convertPdfToWord>>) => void
+    vi.mocked(convertPdfToWord).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done
+        }),
+    )
+    const wrapper = mount(PdfToWordView)
+    await selectFile(wrapper, createPdfFile())
+    await wrapper.find('button.convert-button').trigger('click')
+    const signal = vi.mocked(convertPdfToWord).mock.calls[0]?.[1]?.signal
+    const createUrl = vi.spyOn(URL, 'createObjectURL')
+    createUrl.mockClear()
+    wrapper.unmount()
+    resolve({
+      blob: new Blob(['old']),
+      filename: 'old.docx',
+      fontsNormalized: true,
+      ocrStatus: 'disabled',
+    })
+    await flushPromises()
+    expect(signal?.aborted).toBe(true)
+    expect(createUrl).not.toHaveBeenCalled()
+    createUrl.mockRestore()
+  })
+
   beforeEach(() => {
     vi.mocked(convertPdfToWord).mockReset()
   })
@@ -130,9 +241,7 @@ describe('PdfToWordView', () => {
   })
 
   it('shows converting state and disables the button during conversion', async () => {
-    vi.mocked(convertPdfToWord).mockImplementation(
-      () => new Promise(() => undefined),
-    )
+    vi.mocked(convertPdfToWord).mockImplementation(() => new Promise(() => undefined))
     const wrapper = mount(PdfToWordView)
     await selectFile(wrapper, createPdfFile())
     await wrapper.find('button.convert-button').trigger('click')
@@ -147,6 +256,7 @@ describe('PdfToWordView', () => {
       blob,
       filename: 'report.docx',
       fontsNormalized: true,
+      ocrStatus: 'disabled',
     })
 
     const wrapper = mount(PdfToWordView)
@@ -167,6 +277,7 @@ describe('PdfToWordView', () => {
       blob,
       filename: 'report.docx',
       fontsNormalized: false,
+      ocrStatus: 'disabled',
     })
 
     const wrapper = mount(PdfToWordView)
@@ -175,9 +286,7 @@ describe('PdfToWordView', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).toContain('字体优化未成功')
-    expect(wrapper.text()).toContain(
-      'Word 已生成，但自动字体优化未成功，部分文字可能显示异常。',
-    )
+    expect(wrapper.text()).toContain('Word 已生成，但自动字体优化未成功，部分文字可能显示异常。')
     expect(wrapper.text()).toContain('手动调整字体')
 
     const link = wrapper.find('a.download-button')
@@ -212,9 +321,7 @@ describe('PdfToWordView', () => {
   })
 
   it('prevents duplicate submissions while converting', async () => {
-    vi.mocked(convertPdfToWord).mockImplementation(
-      () => new Promise(() => undefined),
-    )
+    vi.mocked(convertPdfToWord).mockImplementation(() => new Promise(() => undefined))
     const wrapper = mount(PdfToWordView)
     await selectFile(wrapper, createPdfFile())
     const button = wrapper.find('button.convert-button')
@@ -223,5 +330,103 @@ describe('PdfToWordView', () => {
     await button.trigger('click')
 
     expect(vi.mocked(convertPdfToWord)).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the OCR option off by default', async () => {
+    vi.mocked(convertPdfToWord).mockResolvedValue({
+      blob: new Blob(['docx']),
+      filename: 'report.docx',
+      fontsNormalized: true,
+      ocrStatus: 'disabled',
+    })
+
+    const wrapper = mount(PdfToWordView)
+    const checkbox = wrapper.find<HTMLInputElement>('input[type="checkbox"]')
+    expect(checkbox.exists()).toBe(true)
+    expect(checkbox.element.checked).toBe(false)
+    expect(wrapper.text()).toContain('识别扫描页及图片中的文字（OCR）')
+
+    await selectFile(wrapper, createPdfFile())
+    await wrapper.find('button.convert-button').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(vi.mocked(convertPdfToWord)).toHaveBeenCalledWith(
+      expect.any(File),
+      expect.objectContaining({ ocrEnabled: false }),
+    )
+  })
+
+  it('passes the OCR flag to the API when enabled', async () => {
+    vi.mocked(convertPdfToWord).mockResolvedValue({
+      blob: new Blob(['docx']),
+      filename: 'scan.docx',
+      fontsNormalized: true,
+      ocrStatus: 'applied',
+    })
+
+    const wrapper = mount(PdfToWordView)
+    await selectFile(wrapper, createPdfFile('scan.pdf'))
+    await wrapper.find('input[type="checkbox"]').setValue(true)
+    await wrapper.find('button.convert-button').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(vi.mocked(convertPdfToWord)).toHaveBeenCalledWith(
+      expect.any(File),
+      expect.objectContaining({ ocrEnabled: true }),
+    )
+    expect(wrapper.text()).toContain('已识别扫描页中的文字')
+    expect(wrapper.find('a.download-button').exists()).toBe(true)
+  })
+
+  it('warns about partially recognized pages and keeps the download', async () => {
+    vi.mocked(convertPdfToWord).mockResolvedValue({
+      blob: new Blob(['docx']),
+      filename: 'partial.docx',
+      fontsNormalized: true,
+      ocrStatus: 'partial',
+    })
+
+    const wrapper = mount(PdfToWordView)
+    await selectFile(wrapper, createPdfFile('scan.pdf'))
+    await wrapper.find('input[type="checkbox"]').setValue(true)
+    await wrapper.find('button.convert-button').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('请复核识别结果')
+    expect(wrapper.text()).toContain('部分内容未识别或可信度较低，请人工复核。')
+    expect(wrapper.find('.status-panel.success').classes()).toContain('is-degraded')
+    expect(wrapper.find('a.download-button').exists()).toBe(true)
+  })
+
+  it('reports font and OCR warnings independently', async () => {
+    vi.mocked(convertPdfToWord).mockResolvedValue({
+      blob: new Blob(['docx']),
+      filename: 'both.docx',
+      fontsNormalized: false,
+      ocrStatus: 'partial',
+    })
+
+    const wrapper = mount(PdfToWordView)
+    await selectFile(wrapper, createPdfFile('scan.pdf'))
+    await wrapper.find('input[type="checkbox"]').setValue(true)
+    await wrapper.find('button.convert-button').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('字体优化未成功')
+    expect(wrapper.text()).toContain('部分内容未识别或可信度较低，请人工复核。')
+    expect(wrapper.find('a.download-button').exists()).toBe(true)
+  })
+
+  it('disables the OCR option while converting', async () => {
+    vi.mocked(convertPdfToWord).mockImplementation(() => new Promise(() => undefined))
+    const wrapper = mount(PdfToWordView)
+    await selectFile(wrapper, createPdfFile())
+
+    const checkbox = wrapper.find<HTMLInputElement>('input[type="checkbox"]')
+    expect(checkbox.attributes('disabled')).toBeUndefined()
+
+    await wrapper.find('button.convert-button').trigger('click')
+
+    expect(checkbox.attributes('disabled')).toBeDefined()
   })
 })

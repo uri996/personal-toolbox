@@ -206,3 +206,19 @@ def test_normalize_docx_with_status_falls_back_to_valid_original() -> None:
 def test_normalize_docx_with_status_raises_when_no_valid_file_exists() -> None:
     with pytest.raises(ConversionFailedError):
         normalize_docx_with_status(b"not a real docx package")
+
+
+def test_font_repair_that_changes_content_falls_back_to_original(monkeypatch):
+    original = _make_styled_docx()
+
+    def changed(data):
+        document = Document(io.BytesIO(data))
+        document.paragraphs[0].text = "unexpected change"
+        buffer = io.BytesIO()
+        document.save(buffer)
+        return buffer.getvalue()
+
+    monkeypatch.setattr(font_normalizer, "normalize_docx", changed)
+    returned, normalized = normalize_docx_with_status(original)
+    assert returned == original
+    assert normalized is False

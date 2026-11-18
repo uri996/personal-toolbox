@@ -1,5 +1,4 @@
 import io
-from pathlib import Path
 
 import pymupdf
 from docx import Document
@@ -165,14 +164,15 @@ def test_invalid_pdf_bytes_return_clear_error() -> None:
 
 
 def test_conversion_does_not_leave_temp_files_in_temp_dir(
-    monkeypatch,
+    monkeypatch, tmp_path,
 ) -> None:
     # The service operates fully in memory (BytesIO). Verify that no PDF/DOCX
     # temp files are created in the system temp directory during conversion.
     import tempfile
 
     pdf_bytes = _make_pdf("Temp file cleanup test")
-    temp_dir = Path(tempfile.gettempdir())
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    temp_dir = tmp_path
     before = {p.name for p in temp_dir.iterdir() if p.is_file()}
 
     response = _client().post(

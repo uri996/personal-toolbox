@@ -151,6 +151,23 @@ def test_sample_e_report_structure() -> None:
     _assert_editable_structure(document)
 
 
+def test_trailing_chinese_period_after_email_is_preserved() -> None:
+    """The full stop after an English email address must survive conversion.
+
+    V1.1 reported that ``user@example.com。`` could lose its trailing ``。``.
+    The three layouts below all keep the period as separate spans or on the
+    following line, which is how real PDF producers emit it.
+    """
+    document = _convert(samples.email_period_pdf())
+    # Iterate ``w:t`` so text inside hyperlink elements is included too.
+    text = "".join(node.text or "" for node in document.element.body.iter(qn("w:t")))
+    normalized = text.replace("\t", "")
+
+    assert "如需帮助请发送邮件至 user@example.com。" in normalized
+    assert "联系邮箱：user@example.com。" in normalized
+    assert normalized.count("user@example.com。") == 3
+
+
 @pytest.mark.parametrize(
     "sample_factory",
     [

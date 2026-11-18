@@ -1,6 +1,10 @@
 import logging
 
-from .converter import ConversionOutcome, convert_pdf_to_docx, inspect_pdf
+from .converter import (
+    ConversionOutcome,
+    convert_pdf_to_docx,
+    inspect_pdf,
+)
 from .errors import (
     EmptyFileError,
     FileTooLargeError,
@@ -21,10 +25,30 @@ class PdfToWordService:
     def __init__(self, *, max_file_size: int = MAX_FILE_SIZE) -> None:
         self._max_file_size = max_file_size
 
-    def convert(self, file_bytes: bytes, filename: str) -> ConversionOutcome:
+    def convert(
+        self,
+        file_bytes: bytes,
+        filename: str,
+        *,
+        ocr_enabled: bool = False,
+    ) -> ConversionOutcome:
         self._validate(file_bytes, filename)
-        inspect_pdf(file_bytes)
-        return convert_pdf_to_docx(file_bytes)
+        inspect_pdf(file_bytes, allow_scanned=ocr_enabled)
+        if not ocr_enabled:
+            return convert_pdf_to_docx(file_bytes)
+        return self._convert_with_ocr(file_bytes)
+
+    def _convert_with_ocr(self, file_bytes: bytes) -> ConversionOutcome:
+        # Imported lazily so the OCR dependency never affects application
+        # startup or the plain conversion path.
+        from .ocr import recognize_pdf
+        from .ocr_docx import build_ocr_docx
+
+        prepared = recognize_pdf(file_bytes)
+        if not prepared.needed:
+            outcome = convert_pdf_to_docx(file_bytes)
+            return ConversionOutcome(outcome.docx, outcome.fonts_normalized, "not-needed")
+        return build_ocr_docx(prepared)
 
     def _validate(self, file_bytes: bytes, filename: str) -> None:
         if not file_bytes:

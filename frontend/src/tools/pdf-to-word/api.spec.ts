@@ -18,6 +18,7 @@ interface MockResponseOptions {
   contentType?: string
   contentDisposition?: string
   fontNormalization?: string
+  ocrStatus?: string
 }
 
 function mockResponse(options: MockResponseOptions): Response {
@@ -30,6 +31,9 @@ function mockResponse(options: MockResponseOptions): Response {
   }
   if (options.fontNormalization) {
     headers.set('X-Font-Normalization', options.fontNormalization)
+  }
+  if (options.ocrStatus) {
+    headers.set('X-Ocr-Status', options.ocrStatus)
   }
   return {
     ok: options.status >= 200 && options.status < 300,
@@ -59,6 +63,44 @@ describe('convertPdfToWord', () => {
     expect(result.blob).toBeInstanceOf(Blob)
     expect(result.filename).toBe('report.docx')
     expect(result.fontsNormalized).toBe(true)
+    expect(result.ocrStatus).toBe('disabled')
+  })
+
+  it('sends ocr_enabled only when OCR is requested', async () => {
+    const bodies: FormData[] = []
+    const fetcher = (async (_url: string, init: RequestInit) => {
+      bodies.push(init.body as FormData)
+      return mockResponse({ status: 200, ocrStatus: 'applied' })
+    }) as typeof fetch
+
+    await convertPdfToWord(createPdfFile(), { fetcher })
+    await convertPdfToWord(createPdfFile(), { fetcher, ocrEnabled: true })
+
+    const [withoutOcr, withOcr] = bodies
+    expect(withoutOcr?.has('ocr_enabled')).toBe(false)
+    expect(withOcr?.get('ocr_enabled')).toBe('true')
+  })
+
+  it('reports OCR applied and partial statuses from response headers', async () => {
+    const applied = (async () =>
+      mockResponse({ status: 200, ocrStatus: 'applied' })) as typeof fetch
+    const partial = (async () =>
+      mockResponse({ status: 200, ocrStatus: 'partial' })) as typeof fetch
+
+    await expect(
+      convertPdfToWord(createPdfFile(), { fetcher: applied }),
+    ).resolves.toMatchObject({ ocrStatus: 'applied' })
+    await expect(
+      convertPdfToWord(createPdfFile(), { fetcher: partial }),
+    ).resolves.toMatchObject({ ocrStatus: 'partial' })
+  })
+
+  it('treats an unknown OCR status header as disabled', async () => {
+    const fetcher = (async () =>
+      mockResponse({ status: 200, ocrStatus: 'something-else' })) as typeof fetch
+
+    const result = await convertPdfToWord(createPdfFile(), { fetcher })
+    expect(result.ocrStatus).toBe('disabled')
   })
 
   it('marks the result as degraded when the server reports a font fallback', async () => {

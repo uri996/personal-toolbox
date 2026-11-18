@@ -11,6 +11,8 @@ export function getApiBaseUrl(configuredUrl = import.meta.env.VITE_API_BASE_URL)
   return (configuredUrl || DEFAULT_API_BASE_URL).replace(/\/+$/, '')
 }
 
+export type OcrStatus = 'disabled' | 'not-needed' | 'applied' | 'partial'
+
 export interface ConvertResult {
   blob: Blob
   filename: string
@@ -19,6 +21,11 @@ export interface ConvertResult {
    * step failed. The file is still downloadable, but the user must be warned.
    */
   fontsNormalized: boolean
+  /**
+   * How OCR behaved. ``partial`` also includes retained low-confidence text
+   * and failed regions whose original page image remains in the document.
+   */
+  ocrStatus: OcrStatus
 }
 
 export async function convertPdfToWord(
@@ -27,11 +34,15 @@ export async function convertPdfToWord(
     baseUrl?: string
     fetcher?: typeof fetch
     signal?: AbortSignal
+    ocrEnabled?: boolean
   } = {},
 ): Promise<ConvertResult> {
   const fetcher = options.fetcher ?? fetch
   const formData = new FormData()
   formData.append('file', file)
+  if (options.ocrEnabled) {
+    formData.append('ocr_enabled', 'true')
+  }
 
   let response: Response
   try {
@@ -54,9 +65,16 @@ export async function convertPdfToWord(
 
   const blob = await response.blob()
   const filename = parseFilename(response.headers.get('Content-Disposition'), file.name)
-  const fontsNormalized =
-    response.headers.get('X-Font-Normalization')?.toLowerCase() !== 'fallback'
-  return { blob, filename, fontsNormalized }
+  const fontsNormalized = response.headers.get('X-Font-Normalization')?.toLowerCase() !== 'fallback'
+  return { blob, filename, fontsNormalized, ocrStatus: parseOcrStatus(response) }
+}
+
+function parseOcrStatus(response: Response): OcrStatus {
+  const value = response.headers.get('X-Ocr-Status')?.toLowerCase()
+  if (value === 'applied' || value === 'partial' || value === 'not-needed') {
+    return value
+  }
+  return 'disabled'
 }
 
 async function parseErrorMessage(response: Response): Promise<string> {

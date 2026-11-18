@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { pdfToWordTool } from '@/app/tools'
 import ToolPageLayout from '@/shared/components/ToolPageLayout.vue'
 
-import { convertPdfToWord, PdfToWordApiError } from './api'
+import { convertPdfToWord, PdfToWordApiError, type OcrStatus } from './api'
 
 type ConversionState = 'idle' | 'selected' | 'converting' | 'success' | 'error'
 
@@ -16,6 +16,8 @@ const errorMessage = ref('')
 const downloadUrl = ref<string | null>(null)
 const downloadFilename = ref('')
 const fontsNormalized = ref(true)
+const ocrEnabled = ref(false)
+const ocrStatus = ref<OcrStatus>('disabled')
 const isDragging = ref(false)
 let activeRequest: AbortController | null = null
 
@@ -27,6 +29,18 @@ const fileSizeLabel = computed(() => {
 })
 
 const canConvert = computed(() => !!selectedFile.value && state.value !== 'converting')
+
+const hasWarning = computed(() => !fontsNormalized.value || ocrStatus.value === 'partial')
+
+const successTitle = computed(() => {
+  if (!fontsNormalized.value) {
+    return '转换完成，字体优化未成功'
+  }
+  if (ocrStatus.value === 'partial') {
+    return '转换完成，请复核识别结果'
+  }
+  return '转换完成'
+})
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) {
@@ -63,6 +77,10 @@ function handleDragLeave(event: DragEvent) {
 }
 
 function applyFile(file: File | null) {
+  cancelActiveRequest()
+  selectedFile.value = null
+  state.value = 'idle'
+  errorMessage.value = ''
   resetResult()
   if (!file) {
     return
@@ -94,10 +112,16 @@ function isPdfFile(file: File): boolean {
 }
 
 function clearFile() {
+  cancelActiveRequest()
   selectedFile.value = null
   state.value = 'idle'
   errorMessage.value = ''
   resetResult()
+}
+
+function cancelActiveRequest() {
+  activeRequest?.abort()
+  activeRequest = null
 }
 
 function resetResult() {
@@ -107,6 +131,7 @@ function resetResult() {
   }
   downloadFilename.value = ''
   fontsNormalized.value = true
+  ocrStatus.value = 'disabled'
 }
 
 async function startConversion() {
@@ -121,16 +146,20 @@ async function startConversion() {
   resetResult()
 
   try {
-    const result = await convertPdfToWord(selectedFile.value, { signal: request.signal })
-    if (request.signal.aborted) {
+    const result = await convertPdfToWord(selectedFile.value, {
+      signal: request.signal,
+      ocrEnabled: ocrEnabled.value,
+    })
+    if (request.signal.aborted || activeRequest !== request) {
       return
     }
     downloadUrl.value = URL.createObjectURL(result.blob)
     downloadFilename.value = result.filename
     fontsNormalized.value = result.fontsNormalized
+    ocrStatus.value = result.ocrStatus
     state.value = 'success'
   } catch (error) {
-    if (request.signal.aborted) {
+    if (request.signal.aborted || activeRequest !== request) {
       return
     }
     state.value = 'error'
@@ -193,6 +222,14 @@ onBeforeUnmount(() => {
         </label>
       </div>
 
+      <div class="ocr-option">
+        <label class="ocr-toggle">
+          <input v-model="ocrEnabled" type="checkbox" :disabled="state === 'converting'" />
+          <span>识别扫描页及图片中的文字（OCR）</span>
+        </label>
+        <p class="ocr-hint">开启后可识别扫描 PDF 或图片中的文字，转换可能需要更长时间。</p>
+      </div>
+
       <div class="action-row">
         <button
           type="button"
@@ -213,14 +250,23 @@ onBeforeUnmount(() => {
       <section
         v-else-if="state === 'success' && downloadUrl"
         class="status-panel success"
-        :class="{ 'is-degraded': !fontsNormalized }"
+        :class="{ 'is-degraded': hasWarning }"
       >
         <div class="status-body">
-          <h2>{{ fontsNormalized ? '转换完成' : '转换完成，字体优化未成功' }}</h2>
-          <p v-if="fontsNormalized">Word 文档已生成，可直接下载。</p>
-          <p v-else class="status-warning">
-            Word 已生成，但自动字体优化未成功，部分文字可能显示异常。你仍可下载文件，并在 Word
-            或 WPS 中手动调整字体。
+          <h2>{{ successTitle }}</h2>
+          <p v-if="!hasWarning">
+            {{
+              ocrStatus === 'applied'
+                ? '已识别扫描页中的文字，Word 文档可直接下载。'
+                : 'Word 文档已生成，可直接下载。'
+            }}
+          </p>
+          <p v-if="!fontsNormalized" class="status-warning">
+            Word 已生成，但自动字体优化未成功，部分文字可能显示异常。你仍可下载文件，并在 Word 或
+            WPS 中手动调整字体。
+          </p>
+          <p v-if="ocrStatus === 'partial'" class="status-warning">
+            部分内容未识别或可信度较低，请人工复核。已保留识别文字；未识别区域所在页及仍有严重异常的行附有原图。你仍可下载文件。
           </p>
         </div>
         <a :href="downloadUrl" :download="downloadFilename" class="download-button">
@@ -239,7 +285,8 @@ onBeforeUnmount(() => {
       <section class="guidance">
         <p class="guidance-title">使用说明</p>
         <ul>
-          <li>支持普通文字型 PDF，扫描版暂不支持。</li>
+          <li>普通文字型 PDF 直接转换；扫描版或图片中的文字请开启 OCR。</li>
+          <li>开启 OCR 后，单次识别页数有上限，页数较多时请拆分文件。</li>
           <li>复杂排版（多栏、艺术字）转换后可能存在差异。</li>
           <li>文件仅在转换期间临时处理，不会被保存。</li>
         </ul>
@@ -388,6 +435,41 @@ button:disabled {
 .action-row {
   display: flex;
   justify-content: flex-start;
+}
+
+.ocr-option {
+  display: grid;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  padding: var(--space-3) var(--space-4);
+}
+
+.ocr-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-primary);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ocr-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.ocr-toggle input:disabled {
+  cursor: not-allowed;
+}
+
+.ocr-hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-meta);
+  line-height: 1.5;
 }
 
 .convert-button {
