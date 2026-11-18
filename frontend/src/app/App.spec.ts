@@ -4,7 +4,14 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import App from '../App.vue'
 import { recordRecentToolPath } from './recentTool'
-import { exchangeRateTool, textCleanerTool, textCompareTool, textNormalizerTool, tools } from './tools'
+import {
+  exchangeRateTool,
+  pdfToWordTool,
+  textCleanerTool,
+  textCompareTool,
+  textNormalizerTool,
+  tools,
+} from './tools'
 import { setTheme } from '@/shared/theme/useTheme'
 
 type MountedApp = Awaited<ReturnType<typeof mountAt>>
@@ -40,6 +47,10 @@ function createTestRouter() {
       {
         path: textNormalizerTool.path,
         component: () => import('@/tools/text-normalizer/TextNormalizerView.vue'),
+      },
+      {
+        path: pdfToWordTool.path,
+        component: () => import('@/tools/pdf-to-word/PdfToWordView.vue'),
       },
       {
         path: '/:pathMatch(.*)*',
@@ -274,12 +285,27 @@ describe('App', () => {
     expect(textTools.find('.tool-grid-single').exists()).toBe(false)
     expect(textTools.findAll('a.tool-card')).toHaveLength(2)
 
-    expect(dataFinance.text()).toContain('02 / FINANCE TOOLS')
+    expect(dataFinance.text()).toContain('03 / FINANCE TOOLS')
     expect(dataFinance.text()).toContain('金融工具')
     expect(dataFinance.text()).toContain(exchangeRateTool.name)
     expect(dataFinance.text()).not.toContain(textCompareTool.name)
     expect(dataFinance.find('.tool-grid.tool-grid-single').exists()).toBe(true)
     expect(dataFinance.findAll('a.tool-card')).toHaveLength(1)
+  })
+
+  it('renders the document conversion category between text and finance tools', async () => {
+    const home = await mountAt('/')
+    const documentConversion = home.find(
+      'section[aria-labelledby="document-conversion-heading"]',
+    )
+
+    expect(documentConversion.text()).toContain('02 / DOCUMENT CONVERSION')
+    expect(documentConversion.text()).toContain('文档转换')
+    expect(documentConversion.text()).toContain(pdfToWordTool.name)
+    expect(documentConversion.text()).toContain(pdfToWordTool.description)
+    expect(documentConversion.find('.tool-grid.tool-grid-single').exists()).toBe(true)
+    expect(documentConversion.findAll('a.tool-card')).toHaveLength(1)
+    expect(documentConversion.find(`a[href="${pdfToWordTool.path}"]`).exists()).toBe(true)
   })
 
   it('hides Last Used on first visit and shows the stored concrete tool route', async () => {

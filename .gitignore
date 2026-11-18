@@ -52,3 +52,6 @@ backend/spikes/exchange_rate/*_response.html
 backend/spikes/exchange_rate/*_response.js
 backend/spikes/exchange_rate/*_response.json
 backend/spikes/exchange_rate/*_response.xml
+backend/.local/ocr-benchmark/
+backend/spikes/pdf_to_word/recognition.local/
+backend/spikes/pdf_to_word/SEVERE_LINE_REVIEW.md

@@ -4,3 +4,9 @@ pytest
 fastapi
 uvicorn
 tzdata; platform_system == "Windows"
+pdf2docx>=0.5.13
+# PyMuPDF 2.x adds unused layout/LLM models that exceed Vercel's bundle limit.
+PyMuPDF==1.27.2.3
+python-multipart
+rapidocr>=3.10,<4
+onnxruntime>=1.20
