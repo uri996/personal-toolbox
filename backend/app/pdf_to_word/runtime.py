@@ -1,29 +1,44 @@
-"""Bound PDF processing to one isolated worker per application process.
+"""Bound PDF processing to one worker per application process.
 
-PyMuPDF and the OCR singleton are used serially inside the child. A disconnected
+PyMuPDF and the OCR singleton are used serially inside the worker. A disconnected
 request keeps its slot until the worker actually finishes. Worker crashes are
 reported and the next request receives a fresh worker.
+Vercel runtimes without POSIX semaphores use one serial thread instead; the
+request slot still remains occupied until processing actually finishes.
 """
 
 import asyncio
+import errno
+import logging
 import multiprocessing
+import os
 import threading
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 
 from .errors import ConversionBusyError, ConversionFailedError
 from .service import PdfToWordService
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _convert(file_bytes: bytes, filename: str, ocr_enabled: bool):
     return PdfToWordService().convert(file_bytes, filename, ocr_enabled=ocr_enabled)
 
 
-def _new_pool() -> ProcessPoolExecutor:
-    return ProcessPoolExecutor(
-        max_workers=1,
-        mp_context=multiprocessing.get_context("spawn"),
-    )
+def _new_pool() -> ProcessPoolExecutor | ThreadPoolExecutor:
+    try:
+        return ProcessPoolExecutor(
+            max_workers=1,
+            mp_context=multiprocessing.get_context("spawn"),
+        )
+    except OSError as error:
+        # The deployed Vercel runtime lacks the semaphore support required by
+        # multiprocessing.Queue. Do not hide unrelated initialization errors.
+        if os.environ.get("VERCEL") != "1" or error.errno not in (errno.ENOENT, errno.ENOSYS):
+            raise
+        LOGGER.warning("Process semaphores unavailable; using a serial PDF worker thread")
+        return ThreadPoolExecutor(max_workers=1, thread_name_prefix="pdf-conversion")
 
 
 class ConversionRunner:
